@@ -10,13 +10,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.2.0",
+    "react": "^19.1.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.15.0",
     "framer-motion": "^10.16.4",
     "react-toastify": "^11.0.5",
     "lucide-react": "^0.299.0",
-    "date-fns": "^4.1.0"
+    "date-fns": "^4.1.0",
+    "@reduxjs/toolkit": "^2.0.1",
+    "react-redux": "^9.0.4"
   },
   "devDependencies": {
     "@types/react": "^18.2.15",

@@ -1,9 +1,16 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useSelector, useDispatch } from 'react-redux'
+import { useContext } from 'react'
+import { AuthContext } from '../App'
+import { clearUser } from '../store/userSlice'
 import MainFeature from '../components/MainFeature'
 import ApperIcon from '../components/ApperIcon'
 
 function Home() {
+  const dispatch = useDispatch()
+  const { logout } = useContext(AuthContext)
+  const { user } = useSelector((state) => state.user)
   const [darkMode, setDarkMode] = useState(false)
 
   useEffect(() => {
@@ -13,6 +20,14 @@ function Home() {
       document.documentElement.classList.remove('dark')
     }
   }, [darkMode])
+
+  const handleLogout = async () => {
+    try {
+      await logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
+  }
 
   return (
     <div className="min-h-screen">
@@ -45,6 +60,25 @@ function Home() {
             </motion.div>
 
             <div className="flex items-center space-x-2 md:space-x-4">
+              <div className="hidden lg:flex items-center space-x-3 px-3 py-2 rounded-xl bg-gradient-to-r from-primary-50 to-secondary-50 dark:from-surface-700 dark:to-surface-600">
+                <div className="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-full flex items-center justify-center">
+                  <span className="text-white text-sm font-semibold">
+                    {user?.firstName?.charAt(0) || user?.emailAddress?.charAt(0) || 'U'}
+                  </span>
+                </div>
+                <span className="text-sm font-medium text-surface-700 dark:text-surface-200">
+                  {user?.firstName || user?.emailAddress || 'User'}
+                </span>
+              </div>
+              
+              <button
+                onClick={handleLogout}
+                className="p-2 md:p-3 rounded-xl bg-surface-100 hover:bg-surface-200 dark:bg-surface-700 dark:hover:bg-surface-600 transition-all duration-200 focus-ring"
+                aria-label="Logout"
+              >
+                <ApperIcon name="LogOut" className="w-4 h-4 md:w-5 md:h-5 text-surface-600 dark:text-surface-300" />
+              </button>
+              
               <button
                 onClick={() => setDarkMode(!darkMode)}
                 className="p-2 md:p-3 rounded-xl bg-surface-100 hover:bg-surface-200 dark:bg-surface-700 dark:hover:bg-surface-600 transition-all duration-200 focus-ring"

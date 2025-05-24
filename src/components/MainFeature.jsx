@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'react-toastify'
+import { useSelector } from 'react-redux'
 import { format, isAfter, isBefore, isToday, isPast } from 'date-fns'
 import ApperIcon from './ApperIcon'
+import TaskService from '../services/TaskService'
 
 function MainFeature() {
+  const { user } = useSelector((state) => state.user)
   const [tasks, setTasks] = useState([])
+  const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [filter, setFilter] = useState('all')
   const [sortBy, setSortBy] = useState('dueDate')
@@ -17,6 +21,9 @@ function MainFeature() {
     category: 'general'
   })
   const [editingTask, setEditingTask] = useState(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(null)
+  const [error, setError] = useState(null)
 
   const categories = [
     { id: 'general', name: 'General', color: 'bg-surface-500' },
@@ -32,20 +39,30 @@ function MainFeature() {
     { id: 'high', name: 'High', color: 'text-red-600', bg: 'bg-red-100' }
   ]
 
-  // Load tasks from localStorage
+  // Load tasks from database
   useEffect(() => {
-    const savedTasks = localStorage.getItem('taskflow-tasks')
-    if (savedTasks) {
-      setTasks(JSON.parse(savedTasks))
+    loadTasks()
+  }, [user])
+
+  const loadTasks = async () => {
+    if (!user?.userId) return
+    
+    try {
+      setLoading(true)
+      setError(null)
+      const taskData = await TaskService.fetchTasks(user.userId)
+      setTasks(taskData || [])
+    } catch (error) {
+      console.error('Error loading tasks:', error)
+      setError('Failed to load tasks. Please try again.')
+      toast.error('Failed to load tasks. Please try again.')
+      setTasks([])
+    } finally {
+      setLoading(false)
     }
-  }, [])
+  }
 
-  // Save tasks to localStorage
-  useEffect(() => {
-    localStorage.setItem('taskflow-tasks', JSON.stringify(tasks))
-  }, [tasks])
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     
     if (!formData.title.trim()) {
@@ -53,23 +70,33 @@ function MainFeature() {
       return
     }
 
-    const taskData = {
-      ...formData,
-      id: editingTask?.id || Date.now().toString(),
-      completed: editingTask?.completed || false,
-      createdAt: editingTask?.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+    if (!user?.userId) {
+      toast.error('User not authenticated')
+      return
     }
 
-    if (editingTask) {
-      setTasks(tasks.map(task => task.id === editingTask.id ? taskData : task))
-      toast.success('Task updated successfully!')
-    } else {
-      setTasks([...tasks, taskData])
-      toast.success('Task created successfully!')
-    }
+    try {
+      setIsSubmitting(true)
+      setError(null)
 
-    resetForm()
+      if (editingTask) {
+        const updatedTask = await TaskService.updateTask(editingTask.Id, formData, user.userId)
+        setTasks(tasks.map(task => task.Id === editingTask.Id ? updatedTask : task))
+        toast.success('Task updated successfully!')
+      } else {
+        const newTask = await TaskService.createTask(formData, user.userId)
+        setTasks([...tasks, newTask])
+        toast.success('Task created successfully!')
+      }
+
+      resetForm()
+    } catch (error) {
+      console.error('Error saving task:', error)
+      setError('Failed to save task. Please try again.')
+      toast.error(error.message || 'Failed to save task. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const resetForm = () => {
@@ -82,6 +109,7 @@ function MainFeature() {
     })
     setEditingTask(null)
     setShowForm(false)
+    setError(null)
   }
 
   const editTask = (task) => {
@@ -96,22 +124,47 @@ function MainFeature() {
     setShowForm(true)
   }
 
-  const deleteTask = (id) => {
-    setTasks(tasks.filter(task => task.id !== id))
-    toast.success('Task deleted successfully!')
+  const deleteTask = async (taskId) => {
+    if (!window.confirm('Are you sure you want to delete this task?')) {
+      return
+    }
+
+    try {
+      setIsDeleting(taskId)
+      setError(null)
+      await TaskService.deleteTask(taskId)
+      setTasks(tasks.filter(task => task.Id !== taskId))
+      toast.success('Task deleted successfully!')
+    } catch (error) {
+      console.error('Error deleting task:', error)
+      setError('Failed to delete task. Please try again.')
+      toast.error(error.message || 'Failed to delete task. Please try again.')
+    } finally {
+      setIsDeleting(null)
+    }
   }
 
-  const toggleComplete = (id) => {
-    setTasks(tasks.map(task => {
-      if (task.id === id) {
-        const updatedTask = { ...task, completed: !task.completed }
+  const toggleComplete = async (taskId) => {
+    const task = tasks.find(t => t.Id === taskId)
+    if (!task || !user?.userId) return
+
+    try {
+      const updatedTaskData = { ...task, completed: !task.completed }
+      const updatedTask = await TaskService.updateTask(taskId, updatedTaskData, user.userId)
+      
+      setTasks(tasks.map(t => {
+        if (t.Id === taskId) {
         if (updatedTask.completed) {
           toast.success('Task completed! 🎉')
         }
-        return updatedTask
+          return updatedTask
       }
-      return task
-    }))
+        return t
+      }))
+    } catch (error) {
+      console.error('Error updating task:', error)
+      toast.error('Failed to update task. Please try again.')
+    }
   }
 
   const getFilteredTasks = () => {
@@ -171,6 +224,46 @@ function MainFeature() {
 
   const filteredTasks = getFilteredTasks()
   const stats = getTaskStats()
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center py-12 md:py-16">
+          <div className="w-16 h-16 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <h3 className="text-xl md:text-2xl font-semibold text-surface-900 dark:text-white mb-2">
+            Loading your tasks...
+          </h3>
+          <p className="text-surface-600 dark:text-surface-300">
+            Please wait while we fetch your data
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error state
+  if (error && !loading) {
+    return (
+      <div className="max-w-7xl mx-auto">
+        <div className="text-center py-12 md:py-16">
+          <div className="w-24 h-24 bg-gradient-to-br from-red-100 to-red-200 dark:from-red-900 dark:to-red-800 rounded-full flex items-center justify-center mx-auto mb-6">
+            <ApperIcon name="AlertTriangle" className="w-12 h-12 text-red-500" />
+          </div>
+          <h3 className="text-xl md:text-2xl font-semibold text-surface-900 dark:text-white mb-2">
+            {error}
+          </h3>
+          <button
+            onClick={loadTasks}
+            className="inline-flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white rounded-xl font-semibold transition-all duration-200 focus-ring"
+          >
+            <ApperIcon name="RefreshCw" className="w-5 h-5" />
+            <span>Try Again</span>
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -378,9 +471,16 @@ function MainFeature() {
                   <div className="flex flex-col sm:flex-row gap-3 pt-4">
                     <button
                       type="submit"
+                      disabled={isSubmitting}
                       className="flex-1 px-6 py-3 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white rounded-xl font-semibold shadow-soft hover:shadow-card transition-all duration-200 focus-ring"
+                      className={`flex-1 px-6 py-3 bg-gradient-to-r from-primary-500 to-primary-600 hover:from-primary-600 hover:to-primary-700 text-white rounded-xl font-semibold shadow-soft hover:shadow-card transition-all duration-200 focus-ring ${
+                        isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
                     >
-                      {editingTask ? 'Update Task' : 'Create Task'}
+                      {isSubmitting ? 
+                        (editingTask ? 'Updating...' : 'Creating...') : 
+                        (editingTask ? 'Update Task' : 'Create Task')
+                      }
                     </button>
                     <button
                       type="button"
@@ -435,7 +535,7 @@ function MainFeature() {
 
                 return (
                   <motion.div
-                    key={task.id}
+                    key={task.Id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -20 }}
@@ -453,7 +553,7 @@ function MainFeature() {
                     <div className="flex items-start gap-4">
                       {/* Completion Checkbox */}
                       <motion.button
-                        onClick={() => toggleComplete(task.id)}
+                        onClick={() => toggleComplete(task.Id)}
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.95 }}
                         className={`flex-shrink-0 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all duration-200 mt-1 ${
@@ -527,17 +627,29 @@ function MainFeature() {
                           <div className="flex items-center space-x-2">
                             <button
                               onClick={() => editTask(task)}
+                              disabled={isSubmitting}
                               className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-700 text-surface-500 hover:text-primary-600 transition-all duration-200 focus-ring"
+                              className={`p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-700 text-surface-500 hover:text-primary-600 transition-all duration-200 focus-ring ${
+                                isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
                               aria-label="Edit task"
                             >
                               <ApperIcon name="Edit2" className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => deleteTask(task.id)}
+                              onClick={() => deleteTask(task.Id)}
+                              disabled={isDeleting === task.Id}
                               className="p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-700 text-surface-500 hover:text-red-600 transition-all duration-200 focus-ring"
+                              className={`p-2 rounded-lg hover:bg-surface-100 dark:hover:bg-surface-700 text-surface-500 hover:text-red-600 transition-all duration-200 focus-ring ${
+                                isDeleting === task.Id ? 'opacity-50 cursor-not-allowed' : ''
+                              }`}
                               aria-label="Delete task"
                             >
-                              <ApperIcon name="Trash2" className="w-4 h-4" />
+                              {isDeleting === task.Id ? (
+                                <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin" />
+                              ) : (
+                                <ApperIcon name="Trash2" className="w-4 h-4" />
+                              )}
                             </button>
                           </div>
                         </div>
